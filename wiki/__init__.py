@@ -1,5 +1,6 @@
-from wiki import routes
 from werkzeug import find_modules, import_string
+
+from wiki import routes
 
 # Start all permission names with 'wiki_'.
 
