@@ -1,11 +1,11 @@
-from werkzeug import find_modules, import_string
+ from werkzeug import find_modules, import_string
 
 from wiki import routes
 
 # Start all permission names with 'wiki_'.
 
 PERMISSIONS = [
-    'wiki_view',  # View the wiki
+    'wiki_view'  # View the wiki
     ]
 
 
