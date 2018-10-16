@@ -1,4 +1,4 @@
- from werkzeug import find_modules, import_string
+from werkzeug import find_modules, import_string
 
 from wiki import routes
 
