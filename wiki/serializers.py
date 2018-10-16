@@ -10,7 +10,7 @@ class WikiArticleSerializer(Serializer):
     last_editor_id = Attribute(nested=('id', 'username', ))
 
 
-class WikiArticleRevision(Serializer):
+class WikiArticleRevisionSerializer(Serializer):
     id = Attribute()
     wiki_id = Attribute()
     title = Attribute()

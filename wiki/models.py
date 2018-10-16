@@ -8,7 +8,7 @@ from core import db
 from core.mixins import SinglePKMixin
 from core.users.models import User
 from core.utils import cached_property
-from wiki.serializers import WikiArticleSerializer
+from wiki.serializers import WikiArticleSerializer, WikiArticleRevisionSerializer
 
 app = flask.current_app
 
@@ -16,9 +16,7 @@ app = flask.current_app
 class WikiArticle(db.Model, SinglePKMixin):
     __tablename__ = 'wiki_articles'
     __serializer__ = WikiArticleSerializer
-    __cache_key__ = 'wiki_article_{id}'
-
-    _articles = List['WikiArticle']
+    __cache_key__ = 'wiki_articles_{id}'
 
     id: int = db.Column(db.Integer, primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
@@ -34,28 +32,37 @@ class WikiArticle(db.Model, SinglePKMixin):
 
 
 class WikiArticleRevision(db.Model, SinglePKMixin):
-    __tablename__ = 'wiki_article_revisions'
-    __serializer__ = WikiRevisionSerializer
-    __cache_key__ 'wiki_revision_{id}'
-
-    _revisions = List['WikiArticleRevision']
+    __tablename__ = 'wiki_articles_revisions'
+    __serializer__ = WikiArticleRevisionSerializer
+    __cache_key__ = 'wiki_revisions_{id}'
+    __cache_key_of_article__ = 'wiki_revisions_article_{article_id}'
 
     id: int = db.Column(db.Integer, primary_key=True)
-    wiki_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), nullable=False)
+    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), nullable=False)
     title: str = db.Column(db.String(128), nullable=False)
-    editior_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    editor_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     time_created: datetime = db.Column(
         db.DateTime(timezone=True), nullable=False, server_default=func.now())
     contents: str = db.Column(db.Text, nullable=False)
     revision: int = db.Column(db.Integer, nullable=False)
 
+    @classmethod
+    def from_article(cls,
+                     article_id: int,
+                     page: int = 1,
+                     limit: int = 50) -> List['WikiArticleRevision']:
+        return cls.get_many(
+            key=cls.__cache_key_of_article__.format(article_id=article_id),
+            filter=cls.article_id == article_id,
+            order=cls.time_created.desc(),
+            page=page,
+            limit=limit)
+
 
 class WikiArticleAliases(db.Model, SinglePKMixin):
-    __tablename__ = 'wiki_article_aliases'
-    __cache_key__ = 'wiki_article_alias_{id}'
-
-    _aliases = List['WikiArticleRevision']
+    __tablename__ = 'wiki_articles_aliases'
+    __cache_key__ = 'wiki_articles_alias_{id}'
 
     id: int = db.Column(db.Integer, primary_key=True)
-    wiki_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), nulla      ble=False)
+    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), nullable=False)
     alias: str = db.Column(db.String(128), nullable=False)
