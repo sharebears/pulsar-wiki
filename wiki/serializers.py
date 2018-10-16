@@ -1,10 +1,11 @@
 from core.mixins import Attribute, Serializer
 
-class WikiSerializer(Serializer):
+
+class WikiArticleSerializer(Serializer):
     id = Attribute()
     title = Attribute()
-    contents:= Attribute()
+    contents = Attribute()
     version = Attribute()
     last_updated = Attribute()
-    last_edited_by = Attribute(nested=('id', 'username', ))
+    last_editor = Attribute(nested=('id', 'username', ))
     deleted = Attribute(permission='modify_wiki')
