@@ -31,18 +31,18 @@ class WikiArticle(db.Model, SinglePKMixin):
     @classmethod
     def get_all(cls, include_dead: bool = False) -> List['WikiArticle']:
         return cls.get_many(
-                key=cls.__cache_key_all,
-                include_dead=include_dead,
-                required_properties=('last_editor', ))
+            key=cls.__cache_key_all,
+            include_dead=include_dead,
+            required_properties=('last_editor', ))
 
     @classmethod
     def new(cls,
             title: str,
             contents: str,
-            last_editor_id: int,
-            revision: int) -> 'WikiArticle':
+            revision: int,
+            last_editor_id: int) -> 'WikiArticle':
         User.is_valid(last_editor_id, error=True)
-        cache.delete(cls.__cache_key_all__.format(id=id))
+        cache.delete(cls.__cache_key_all__.format)
         return super()._new(
             title=title,
             contents=contents,
