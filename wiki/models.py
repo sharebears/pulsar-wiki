@@ -8,7 +8,7 @@ from core import cache, db
 from core.mixins import SinglePKMixin
 from core.users.models import User
 from core.utils import cached_property
-from wiki.serializers import WikiArticleSerializer, WikiArticleRevisionSerializer
+from wiki.serializers import WikiArticleRevisionSerializer, WikiArticleSerializer
 
 app = flask.current_app
 
