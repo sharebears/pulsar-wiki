@@ -53,5 +53,6 @@ class WikiPopulator(TestDataPopulator):
     def unpopulate(cls):
         db.engine.execute('DELETE FROM wiki_aliases')
         db.engine.execute('DELETE FROM wiki_revisions')
+        db.engine.execute('DELETE FROM wiki_translations')
         db.engine.execute('DELETE FROM wiki_articles')
-        db.engine.execute('ALTER SEQUENCE wiki_aliases_id_seq RESTART WITH 1')
+        db.engine.execute('ALTER SEQUENCE wiki_articles_id_seq RESTART WITH 1')

@@ -9,7 +9,8 @@ from core.mixins import SinglePKMixin, MultiPKMixin
 from core.users.models import User
 from core.utils import cached_property
 from wiki.exceptions import WikiAliasAlreadyExists
-from wiki.serializers import WikiRevisionSerializer, WikiArticleSerializer
+from wiki.serializers import (WikiRevisionSerializer, WikiArticleSerializer,
+                              WikiTranslationSerializer, WikiLanguageSerializer)
 
 app = flask.current_app
 
@@ -19,6 +20,7 @@ class WikiArticle(db.Model, SinglePKMixin):
     __cache_key__ = 'wiki_articles_{id}'
     __cache_key_all__ = 'wiki_articles_all'
     __serializer__ = WikiArticleSerializer
+    __deletion_attr__ = 'deleted'
 
     id: int = db.Column(db.Integer, primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
@@ -28,7 +30,7 @@ class WikiArticle(db.Model, SinglePKMixin):
     @classmethod
     def get_all(cls, include_dead: bool = False) -> List['WikiArticle']:
         return cls.get_many(
-            key=cls.__cache_key_all,
+            key=cls.__cache_key_all__,
             include_dead=include_dead)
 
     @classmethod
@@ -56,14 +58,15 @@ class WikiArticle(db.Model, SinglePKMixin):
         return WikiRevision.latest_revision(self.id)
 
     @cached_property
-    def language(self):
-        return WikiLanguage.from_pk(self.language_id)
+    def languages(self):
+        return WikiTranslation.languages_from_article(self.id)
 
 
 class WikiTranslation(db.Model, MultiPKMixin):
     __tablename__ = 'wiki_translations'
     __cache_key__ = 'wiki_translations_article_{article_id}_{language_id}'
     __cache_key_from_article__ = 'wiki_translations_of_article_{article_id}'
+    __serializer__ = WikiTranslationSerializer
 
     article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
     language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
@@ -72,11 +75,12 @@ class WikiTranslation(db.Model, MultiPKMixin):
     deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
 
     @classmethod
-    def from_article(cls, article_id):
-        return cls.get_many(
+    def languages_from_article(cls, article_id: int) -> List['WikiLanguage']:
+        return [WikiLanguage.from_pk(pk) for pk in cls.get_col_from_many(
             key=cls.__cache_key_from_article__.format(article_id=article_id),
-            filter=cls.article_id == article_id,
-            order=cls.language_id.asc())
+            column=cls.language_id,
+            filter=cls.deleted == 'f',
+            order=cls.language_id.asc())]
 
     @classmethod
     def new(cls,
@@ -218,6 +222,7 @@ class WikiLanguage(db.Model, SinglePKMixin):
     __tablename__ = 'wiki_languages'
     __cache_key__ = 'wiki_language_{id}'
     __cache_key_from_language = 'wiki_language_lang_{language}'
+    __serializer__ = WikiLanguageSerializer
 
     id: int = db.Column(db.Integer, primary_key=True)
     language: str = db.Column(db.String(128), nullable=False, unique=True)
