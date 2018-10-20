@@ -15,9 +15,9 @@ app = flask.current_app
 
 class WikiArticle(db.Model, SinglePKMixin):
     __tablename__ = 'wiki_articles'
-    __serializer__ = WikiArticleSerializer
     __cache_key__ = 'wiki_articles_{id}'
     __cache_key_all__ = 'wiki_articles_all'
+    __serializer__ = WikiArticleSerializer
 
     id: int = db.Column(db.Integer, primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
@@ -63,10 +63,10 @@ class WikiArticle(db.Model, SinglePKMixin):
 
 class WikiArticleRevision(db.Model, MultiPKMixin):
     __tablename__ = 'wiki_articles_revisions'
-    __serializer__ = WikiArticleRevisionSerializer
     __cache_key__ = 'wiki_articles_revisions_{article_id}_{revision_id}'
     __cache_key_of_article__ = 'wiki_articles_revisions_of_article_{article_id}'
     __cache_key_latest_id_of_article__ = 'wiki_articles_revisions_latest_{article_id}'
+    __serializer__ = WikiArticleRevisionSerializer
 
     revision_id: int = db.Column(db.Integer, primary_key=True)
     article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
@@ -116,6 +116,10 @@ class WikiArticleRevision(db.Model, MultiPKMixin):
             latest_id = latest_id[0] if latest_id else 0
             cache.set(cache_key, latest_id)
         return latest_id
+
+    @property
+    def editor(self):
+        return User.from_pk(self.editor_id)
 
 
 class WikiArticleAliases(db.Model, MultiPKMixin):
