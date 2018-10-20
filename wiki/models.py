@@ -4,7 +4,7 @@ from typing import List, Optional
 import flask
 from sqlalchemy import func, and_
 
-from core import cache, db
+from core import cache, db, APIException
 from core.mixins import SinglePKMixin, MultiPKMixin
 from core.users.models import User
 from core.utils import cached_property
@@ -23,7 +23,6 @@ class WikiArticle(db.Model, SinglePKMixin):
     id: int = db.Column(db.Integer, primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
     contents: str = db.Column(db.Text, nullable=False)
-    author_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     last_updated: datetime = db.Column(
         db.DateTime(timezone=True), nullable=False, server_default=func.now())
     deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
@@ -41,21 +40,14 @@ class WikiArticle(db.Model, SinglePKMixin):
             user_id: int) -> 'WikiArticle':
         User.is_valid(user_id, error=True)
         cache.delete(cls.__cache_key_all__.format)
-        article = super()._new(
-            title=title,
-            contents=contents,
-            author_id=user_id)
+        article = super()._new(title=title, contents=contents)
         WikiRevision.new(
             article_id=article.id,
-            title=title,
             language_id=1,
+            title=title,
             editor_id=user_id,
             contents=contents)
         return article
-
-    @cached_property
-    def last_editor(self):
-        return User.from_pk(WikiRevision.last_editor)
 
     @cached_property
     def aliases(self):
@@ -68,6 +60,63 @@ class WikiArticle(db.Model, SinglePKMixin):
     @cached_property
     def language(self):
         return WikiLanguage.from_pk(self.language_id)
+
+
+class WikiTranslation(db.Model, MultiPKMixin):
+    __tablename__ = 'wiki_translations'
+    __cache_key__ = 'wiki_translations_article_{article_id}_{language_id}'
+    __cache_key_from_article__ = 'wiki_translations_of_article_{article_id}'
+
+    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
+    language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
+    title: str = db.Column(db.String(128), nullable=False)
+    contents: str = db.Column(db.Text, nullable=False)
+    last_updated: datetime = db.Column(
+        db.DateTime(timezone=True), nullable=False, server_default=func.now())
+    deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
+
+    @classmethod
+    def from_article(cls, article_id):
+        return cls.get_many(
+            key=cls.__cache_key_from_article__.format(article_id=article_id),
+            filter=cls.article_id == article_id,
+            order=cls.language_id.asc())
+
+    @classmethod
+    def new(cls,
+            article_id: int,
+            title: str,
+            language: str,
+            contents: str,
+            user_id: int) -> 'WikiArticle':
+        User.is_valid(user_id, error=True)
+        language_id = WikiLanguage.from_language(language, error=True)
+        cache.delete(cls.__cache_key_all__.format)
+        translation = super()._new(
+            article_id=article_id,
+            language_id=language_id,
+            title=title,
+            contents=contents,
+            author_id=user_id)
+        WikiRevision.new(
+            article_id=article_id,
+            language_id=language_id,
+            title=title,
+            editor_id=user_id,
+            contents=contents)
+        return translation
+
+    @cached_property
+    def parent_article(self):
+        return WikiArticle.from_pk(self.article_id)
+
+    @cached_property
+    def language(self):
+        return WikiLanguage.from_pk(self.language_id)
+
+    @cached_property
+    def latest_revision(self):
+        return WikiRevision.latest_revision(self.article_id, self.language_id)
 
 
 class WikiRevision(db.Model, MultiPKMixin):
@@ -89,11 +138,12 @@ class WikiRevision(db.Model, MultiPKMixin):
     @classmethod
     def from_article(cls,
                      article_id: int,
+                     language_id: int = 1,
                      page: int = 1,
                      limit: int = 50) -> List['WikiRevision']:
         return cls.get_many(
             key=cls.__cache_key_of_article__.format(article_id=article_id),
-            filter=cls.article_id == article_id,
+            filter=and_(cls.article_id == article_id, cls.language_id == language_id),
             order=cls.time_created.desc(),
             page=page,
             limit=limit)
@@ -141,6 +191,10 @@ class WikiRevision(db.Model, MultiPKMixin):
     def editor(self):
         return User.from_pk(self.editor_id)
 
+    @cached_property
+    def language(self):
+        return WikiLanguage.from_pk(self.language_id)
+
 
 class WikiAliases(db.Model, MultiPKMixin):
     __tablename__ = 'wiki_aliases'
@@ -164,21 +218,6 @@ class WikiAliases(db.Model, MultiPKMixin):
         return cls._new(article_id=article_id, alias=alias)
 
 
-class WikiTranslation(db.Model, MultiPKMixin):
-    __tablename__ = 'wiki_translations'
-    __cache_key__ = 'wiki_translations_article_{article_id}_{language_id}'
-    __cache_key_from_article__ = 'wiki_translations_of_article_{article_id}'
-
-    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
-    language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
-    title: str = db.Column(db.String(128), nullable=False)
-    contents: str = db.Column(db.Text, nullable=False)
-    author_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    last_updated: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=func.now())
-    deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
-
-
 class WikiLanguage(db.Model, SinglePKMixin):
     __tablename__ = 'wiki_languages'
     __cache_key__ = 'wiki_language_{id}'
@@ -188,8 +227,11 @@ class WikiLanguage(db.Model, SinglePKMixin):
     language: str = db.Column(db.String(128), nullable=False, unique=True)
 
     @classmethod
-    def from_language(cls, language: str) -> Optional['WikiLanguage']:
+    def from_language(cls, language: str, error: bool = False) -> Optional['WikiLanguage']:
         language = language.lower()
-        return cls.from_query(
+        wiki_language = cls.from_query(
             key=cls.__cache_key_from_language.format(language=language),
             filter=func.lower(cls.language) == language)
+        if error and not wiki_language:
+            raise APIException(f'Invalid {WikiLanguage} {language}.')
+        return wiki_language
