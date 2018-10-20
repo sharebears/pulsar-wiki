@@ -2,13 +2,14 @@ from datetime import datetime
 from typing import List, Optional
 
 import flask
-from sqlalchemy import func
+from sqlalchemy import func, and_
 
 from core import cache, db
 from core.mixins import SinglePKMixin, MultiPKMixin
 from core.users.models import User
 from core.utils import cached_property
-from wiki.serializers import WikiArticleRevisionSerializer, WikiArticleSerializer
+from wiki.exceptions import WikiAliasAlreadyExists
+from wiki.serializers import WikiRevisionSerializer, WikiArticleSerializer
 
 app = flask.current_app
 
@@ -22,7 +23,7 @@ class WikiArticle(db.Model, SinglePKMixin):
     id: int = db.Column(db.Integer, primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
     contents: str = db.Column(db.Text, nullable=False)
-    last_editor_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    author_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     last_updated: datetime = db.Column(
         db.DateTime(timezone=True), nullable=False, server_default=func.now())
     deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
@@ -31,45 +32,54 @@ class WikiArticle(db.Model, SinglePKMixin):
     def get_all(cls, include_dead: bool = False) -> List['WikiArticle']:
         return cls.get_many(
             key=cls.__cache_key_all,
-            include_dead=include_dead,
-            required_properties=('last_editor', ))
+            include_dead=include_dead)
 
     @classmethod
     def new(cls,
             title: str,
             contents: str,
-            revision: int,
-            last_editor_id: int) -> 'WikiArticle':
-        User.is_valid(last_editor_id, error=True)
+            user_id: int) -> 'WikiArticle':
+        User.is_valid(user_id, error=True)
         cache.delete(cls.__cache_key_all__.format)
-        return super()._new(
+        article = super()._new(
             title=title,
             contents=contents,
-            revision=revision,
-            last_editor_id=last_editor_id)
+            author_id=user_id)
+        WikiRevision.new(
+            article_id=article.id,
+            title=title,
+            language_id=1,
+            editor_id=user_id,
+            contents=contents)
+        return article
 
     @cached_property
     def last_editor(self):
-        return User.from_pk(self.last_editor_id)
+        return User.from_pk(WikiRevision.last_editor)
 
     @cached_property
     def aliases(self):
-        return WikiArticleAliases.from_article(self.id)
+        return WikiAliases.from_article(self.id)
 
     @cached_property
-    def latest_revision_id(self):
-        return WikiArticleRevision.latest_id_from_article(self.id)
+    def latest_revision(self):
+        return WikiRevision.latest_revision(self.id)
+
+    @cached_property
+    def language(self):
+        return WikiLanguage.from_pk(self.language_id)
 
 
-class WikiArticleRevision(db.Model, MultiPKMixin):
-    __tablename__ = 'wiki_articles_revisions'
-    __cache_key__ = 'wiki_articles_revisions_{article_id}_{revision_id}'
-    __cache_key_of_article__ = 'wiki_articles_revisions_of_article_{article_id}'
-    __cache_key_latest_id_of_article__ = 'wiki_articles_revisions_latest_{article_id}'
-    __serializer__ = WikiArticleRevisionSerializer
+class WikiRevision(db.Model, MultiPKMixin):
+    __tablename__ = 'wiki_revisions'
+    __cache_key__ = 'wiki_revisions_articles_{article_id}_{revision_id}'
+    __cache_key_of_article__ = 'wiki_revisions_of_article_{article_id}'
+    __cache_key_latest_id_of_article__ = 'wiki_revisions_latest_{article_id}'
+    __serializer__ = WikiRevisionSerializer
 
     revision_id: int = db.Column(db.Integer, primary_key=True)
     article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
+    language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
     editor_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     time_created: datetime = db.Column(
@@ -80,7 +90,7 @@ class WikiArticleRevision(db.Model, MultiPKMixin):
     def from_article(cls,
                      article_id: int,
                      page: int = 1,
-                     limit: int = 50) -> List['WikiArticleRevision']:
+                     limit: int = 50) -> List['WikiRevision']:
         return cls.get_many(
             key=cls.__cache_key_of_article__.format(article_id=article_id),
             filter=cls.article_id == article_id,
@@ -92,39 +102,49 @@ class WikiArticleRevision(db.Model, MultiPKMixin):
     def new(cls,
             article_id: int,
             title: str,
+            language_id: int,
             editor_id: int,
-            contents: str) -> Optional['WikiArticleRevision']:
+            contents: str) -> Optional['WikiRevision']:
         WikiArticle.is_valid(article_id, error=True)
+        WikiLanguage.is_valid(language_id, error=True)
         old_latest_id = cls.latest_id_from_article(article_id) + 1
         cache.inc(cls.__cache_key_latest_id_of_article__.format(article_id=article_id))
         return super()._new(
             revision_id=old_latest_id,
             article_id=article_id,
             title=title,
+            language_id=language_id,
             editor_id=editor_id,
             contents=contents)
 
     @classmethod
-    def latest_id_from_article(cls, article_id: int) -> int:
-        cache_key = cls.__cache_key_latest_id_of_article__.format(article_id=article_id)
-        latest_id = cache.get(cache_key)
-        if not latest_id:
-            latest_id = (db.session.query(cls.revision_id)
-                         .filter(cls.article_id == article_id)
-                         .order_by(cls.revision_id.desc())
-                         .limit(1))
-            latest_id = latest_id[0] if latest_id else 0
-            cache.set(cache_key, latest_id)
-        return latest_id
+    def latest_revision(cls,
+                        article_id: int,
+                        language_id: int = 1) -> int:
+        cache_key = cls.__cache_key_latest_id_of_article__.format(
+            article_id=article_id, language_id=language_id)
+        latest_revision_attrs = cache.get(cache_key)
+        if latest_revision_attrs:
+            return cls.from_attrs(**latest_revision_attrs)
+        else:
+            latest_revision = (
+                cls.query
+                .filter(and_(cls.article_id == article_id, cls.language_id == language_id))
+                .order_by(cls.revision_id.desc())
+                .limit(1))
+            cache.set(cache_key, {'article_id': latest_revision.article_id,
+                                  'revision_id': latest_revision.revision_id,
+                                  'language_id': latest_revision.language_id})
+        return latest_revision
 
     @property
     def editor(self):
         return User.from_pk(self.editor_id)
 
 
-class WikiArticleAliases(db.Model, MultiPKMixin):
-    __tablename__ = 'wiki_articles_aliases'
-    __cache_key_of_article__ = 'wiki_articles_aliases_article_{article_id}'
+class WikiAliases(db.Model, MultiPKMixin):
+    __tablename__ = 'wiki_aliases'
+    __cache_key_of_article__ = 'wiki_aliases_articles_{article_id}'
 
     article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
     alias: str = db.Column(db.String(128), primary_key=True)
@@ -136,3 +156,40 @@ class WikiArticleAliases(db.Model, MultiPKMixin):
             column=cls.alias,
             filter=cls.article_id == article_id,
             order=cls.alias.asc())
+
+    @classmethod
+    def new(cls, article_id: int, alias: str) -> Optional['WikiAliases']:
+        if cls.from_attrs(alias=alias):
+            raise WikiAliasAlreadyExists
+        return cls._new(article_id=article_id, alias=alias)
+
+
+class WikiTranslation(db.Model, MultiPKMixin):
+    __tablename__ = 'wiki_translations'
+    __cache_key__ = 'wiki_translations_article_{article_id}_{language_id}'
+    __cache_key_from_article__ = 'wiki_translations_of_article_{article_id}'
+
+    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
+    language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
+    title: str = db.Column(db.String(128), nullable=False)
+    contents: str = db.Column(db.Text, nullable=False)
+    author_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    last_updated: datetime = db.Column(
+        db.DateTime(timezone=True), nullable=False, server_default=func.now())
+    deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
+
+
+class WikiLanguage(db.Model, SinglePKMixin):
+    __tablename__ = 'wiki_languages'
+    __cache_key__ = 'wiki_language_{id}'
+    __cache_key_from_language = 'wiki_language_lang_{language}'
+
+    id: int = db.Column(db.Integer, primary_key=True)
+    language: str = db.Column(db.String(128), nullable=False, unique=True)
+
+    @classmethod
+    def from_language(cls, language: str) -> Optional['WikiLanguage']:
+        language = language.lower()
+        return cls.from_query(
+            key=cls.__cache_key_from_language.format(language=language),
+            filter=func.lower(cls.language) == language)
