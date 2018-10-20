@@ -1,2 +1,2 @@
-class WikiAliasAlreadyExists(Exception):
+class WikiNoRevisions(Exception):
     pass

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -8,7 +9,7 @@ from core import cache, db, APIException
 from core.mixins import SinglePKMixin, MultiPKMixin
 from core.users.models import User
 from core.utils import cached_property
-from wiki.exceptions import WikiAliasAlreadyExists
+from wiki.exceptions import WikiNoRevisions
 from wiki.serializers import (WikiRevisionSerializer, WikiArticleSerializer,
                               WikiTranslationSerializer, WikiLanguageSerializer)
 
@@ -39,8 +40,12 @@ class WikiArticle(db.Model, SinglePKMixin):
             contents: str,
             user_id: int) -> 'WikiArticle':
         User.is_valid(user_id, error=True)
-        cache.delete(cls.__cache_key_all__.format)
+        WikiAlias.is_valid(title, error=True)
+        cache.delete(cls.__cache_key_all__)
         article = super()._new(title=title, contents=contents)
+        WikiAlias.new(
+            alias=title,
+            article_id=article.id)
         WikiRevision.new(
             article_id=article.id,
             language_id=1,
@@ -51,7 +56,7 @@ class WikiArticle(db.Model, SinglePKMixin):
 
     @cached_property
     def aliases(self):
-        return WikiAliases.from_article(self.id)
+        return [a.alias for a in WikiAlias.from_article(self.id)]
 
     @cached_property
     def latest_revision(self):
@@ -98,6 +103,10 @@ class WikiTranslation(db.Model, MultiPKMixin):
             title=title,
             contents=contents,
             author_id=user_id)
+        if WikiAlias.is_valid(title):
+            WikiAlias.new(
+                alias=title,
+                article_id=article_id)
         WikiRevision.new(
             article_id=article_id,
             language_id=language_id,
@@ -157,7 +166,10 @@ class WikiRevision(db.Model, MultiPKMixin):
             contents: str) -> Optional['WikiRevision']:
         WikiArticle.is_valid(article_id, error=True)
         WikiLanguage.is_valid(language_id, error=True)
-        old_latest_id = cls.latest_id_from_article(article_id) + 1
+        try:
+            old_latest_id = cls.latest_revision(article_id).revision_id + 1
+        except WikiNoRevisions:
+            old_latest_id = 1
         cache.inc(cls.__cache_key_latest_id_of_article__.format(article_id=article_id))
         return super()._new(
             revision_id=old_latest_id,
@@ -173,15 +185,20 @@ class WikiRevision(db.Model, MultiPKMixin):
                         language_id: int = 1) -> int:
         cache_key = cls.__cache_key_latest_id_of_article__.format(
             article_id=article_id, language_id=language_id)
-        latest_revision_attrs = cache.get(cache_key)
-        if latest_revision_attrs:
-            return cls.from_attrs(**latest_revision_attrs)
+        revision_id = cache.get(cache_key)
+        if revision_id:
+            return cls.from_attrs(
+                revision_id=revision_id,
+                article_id=article_id,
+                language_id=language_id)
         else:
             latest_revision = (
                 cls.query
                 .filter(and_(cls.article_id == article_id, cls.language_id == language_id))
                 .order_by(cls.revision_id.desc())
-                .limit(1))
+                .limit(1).scalar())
+            if not latest_revision:
+                raise WikiNoRevisions
             cache.set(cache_key, {'article_id': latest_revision.article_id,
                                   'revision_id': latest_revision.revision_id,
                                   'language_id': latest_revision.language_id})
@@ -196,32 +213,54 @@ class WikiRevision(db.Model, MultiPKMixin):
         return WikiLanguage.from_pk(self.language_id)
 
 
-class WikiAliases(db.Model, MultiPKMixin):
+class WikiAlias(db.Model, SinglePKMixin):
     __tablename__ = 'wiki_aliases'
+    __cache_key__ = 'wiki_aliases_alias_{alias}'
     __cache_key_of_article__ = 'wiki_aliases_articles_{article_id}'
+    # IF YOU ADD ANOTHER CACHE KEY MAKE SURE IT CANNOT COLLIDE WITH `__cache_key__`.
 
-    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'), primary_key=True)
     alias: str = db.Column(db.String(128), primary_key=True)
+    article_id: int = db.Column(db.Integer, db.ForeignKey('wiki_articles.id'))
 
     @classmethod
     def from_article(cls, article_id: int) -> List[str]:
-        return cls.get_col_from_many(
+        return cls.get_many(
             key=cls.__cache_key_of_article__.format(article_id=article_id),
-            column=cls.alias,
             filter=cls.article_id == article_id,
             order=cls.alias.asc())
 
     @classmethod
-    def new(cls, article_id: int, alias: str) -> Optional['WikiAliases']:
-        if cls.from_attrs(alias=alias):
-            raise WikiAliasAlreadyExists
-        return cls._new(article_id=article_id, alias=alias)
+    def new(cls, alias: str, article_id: int) -> Optional['WikiAlias']:
+        # Validity of the new alias should already have been checked when this is called.
+        WikiArticle.is_valid(article_id, error=True)
+        return cls._new(
+            article_id=article_id,
+            alias=cls.str_to_alias(alias))
+
+    @classmethod
+    def is_valid(cls,
+                 pk: str,
+                 error: bool = False) -> bool:
+        """
+        Override the ``SinglePKMixin`` is_valid function to check for presence, not
+        the lack of one.
+        """
+        alias = cls.str_to_alias(pk)
+        presence = cls.from_pk(alias)
+        if error and presence:
+            raise APIException(f'The wiki alias {alias} has already been taken.')
+        return not presence
+
+    @staticmethod
+    def str_to_alias(stri: str) -> str:
+        """Format a string into its alias form."""
+        return re.sub(r'\s', '', stri.lower())
 
 
 class WikiLanguage(db.Model, SinglePKMixin):
     __tablename__ = 'wiki_languages'
     __cache_key__ = 'wiki_language_{id}'
-    __cache_key_from_language = 'wiki_language_lang_{language}'
+    __cache_key_from_language__ = 'wiki_language_lang_{language}'
     __serializer__ = WikiLanguageSerializer
 
     id: int = db.Column(db.Integer, primary_key=True)
@@ -231,7 +270,7 @@ class WikiLanguage(db.Model, SinglePKMixin):
     def from_language(cls, language: str, error: bool = False) -> Optional['WikiLanguage']:
         language = language.lower()
         wiki_language = cls.from_query(
-            key=cls.__cache_key_from_language.format(language=language),
+            key=cls.__cache_key_from_language__.format(language=language),
             filter=func.lower(cls.language) == language)
         if error and not wiki_language:
             raise APIException(f'Invalid {WikiLanguage} {language}.')

@@ -17,7 +17,7 @@ class WikiPopulator(TestDataPopulator):
             """)
         db.session.execute(
             """INSERT INTO wiki_languages (id, language) VALUES
-            (1, 'english'), (2, 'espanol'), (3, 'diddles')
+            (1, 'en'), (2, 'es'), (3, 'fr')
             """)
         db.session.execute(
             """
@@ -42,6 +42,18 @@ class WikiPopulator(TestDataPopulator):
             (1, 2, 2, 'WikiDos', 4, NOW() - INTERVAL '1 DAY', 'OldContentosEspnaol2'),
             (1, 2, 3, 'Diddles2', 1, NOW() - INTERVAL '1 DAY', 'OldDontentos2')
             """)
+        db.session.execute(
+            """
+            INSERT INTO wiki_aliases (alias, article_id) VALUES
+            ('wiki1', 1),
+            ('wiki2', 2),
+            ('wiki3', 3),
+            ('wiki4', 4),
+            ('wikiuno', 1),
+            ('diddles1', 1),
+            ('wikidos', 2),
+            ('diddles2', 2)
+            """)
         cls.add_permissions(
             WikiPermissions.VIEW,
             WikiPermissions.EDIT,
@@ -55,4 +67,5 @@ class WikiPopulator(TestDataPopulator):
         db.engine.execute('DELETE FROM wiki_revisions')
         db.engine.execute('DELETE FROM wiki_translations')
         db.engine.execute('DELETE FROM wiki_articles')
+        db.engine.execute('DELETE FROM wiki_languages')
         db.engine.execute('ALTER SEQUENCE wiki_articles_id_seq RESTART WITH 1')
