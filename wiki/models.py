@@ -23,8 +23,6 @@ class WikiArticle(db.Model, SinglePKMixin):
     id: int = db.Column(db.Integer, primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
     contents: str = db.Column(db.Text, nullable=False)
-    last_updated: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=func.now())
     deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
 
     @classmethod
@@ -71,8 +69,6 @@ class WikiTranslation(db.Model, MultiPKMixin):
     language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
     contents: str = db.Column(db.Text, nullable=False)
-    last_updated: datetime = db.Column(
-        db.DateTime(timezone=True), nullable=False, server_default=func.now())
     deleted: bool = db.Column(db.Boolean, nullable=False, server_default='f', index=True)
 
     @classmethod
@@ -131,7 +127,7 @@ class WikiRevision(db.Model, MultiPKMixin):
     language_id: int = db.Column(db.Integer, db.ForeignKey('wiki_languages.id'), primary_key=True)
     title: str = db.Column(db.String(128), nullable=False)
     editor_id: int = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    time_created: datetime = db.Column(
+    time: datetime = db.Column(
         db.DateTime(timezone=True), nullable=False, server_default=func.now())
     contents: str = db.Column(db.Text, nullable=False)
 
@@ -144,7 +140,7 @@ class WikiRevision(db.Model, MultiPKMixin):
         return cls.get_many(
             key=cls.__cache_key_of_article__.format(article_id=article_id),
             filter=and_(cls.article_id == article_id, cls.language_id == language_id),
-            order=cls.time_created.desc(),
+            order=cls.time.desc(),
             page=page,
             limit=limit)
 
