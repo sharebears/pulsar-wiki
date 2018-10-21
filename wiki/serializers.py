@@ -11,13 +11,13 @@ class WikiArticleSerializer(Serializer):
 
 
 class WikiRevisionSerializer(Serializer):
-    article_id = Attribute()
     revision_id = Attribute()
+    language = Attribute()
+    parent_article = Attribute(nested=False)
     title = Attribute()
     editor = Attribute(nested=('id', 'username', ))
     time = Attribute()
     contents = Attribute()
-    language = Attribute()
 
 
 class WikiTranslationSerializer(Serializer):
@@ -25,7 +25,7 @@ class WikiTranslationSerializer(Serializer):
     language = Attribute()
     title = Attribute()
     contents = Attribute()
-    latest_revision_id = Attribute()
+    latest_revision = Attribute()
 
 
 class WikiLanguageSerializer(Serializer):

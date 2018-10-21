@@ -61,7 +61,7 @@ def create_wiki_article(title: str,
 
 
 EDIT_ARTICLE_SCHEMA = Schema({
-    'title': All(str, Range(mix=1, max=128)),
+    'title': All(str, Range(min=1, max=128)),
     'language': All(str, Length(max=128)),
     'contents': All(str, Length(max=1000000000))
     })

@@ -1,6 +1,8 @@
-from wiki.models import WikiArticle, WikiTranslation, WikiRevision
+from wiki.models import WikiArticle, WikiTranslation, WikiRevision, WikiAlias, WikiLanguage
 import pytest
 from core.exceptions import APIException
+from conftest import check_dictionary
+from core import NewJSONEncoder
 
 
 def test_get_all_articles(client):
@@ -52,7 +54,7 @@ def test_translation_new(client):
     translation = WikiTranslation.new(
         article_id=3,
         title='articulo tres',
-        language='es',
+        language_id=2,
         contents='un articulo nuevo y mi gusta huevos',
         user_id=3)
     assert translation.parent_article.id == 3
@@ -62,22 +64,11 @@ def test_translation_new_duplicate_alias(client):
     translation = WikiTranslation.new(
         article_id=3,
         title='wiki      1',
-        language='es',
+        language_id=2,
         contents='un articulo nuevo y mi gusta huevos',
         user_id=3)
     assert translation.parent_article.id == 3
     assert translation.language.language == 'es'
-
-
-def test_translation_new_invalid_language(client):
-    with pytest.raises(APIException) as e:
-        WikiTranslation.new(
-            article_id=3,
-            title='articulo tres',
-            language='ef',
-            contents='un articulo nuevo y mi gusta huevos',
-            user_id=3)
-    assert e.value.message == 'Invalid WikiLanguage ef.'
 
 
 def test_wiki_revisions_from_article(client):
@@ -86,3 +77,82 @@ def test_wiki_revisions_from_article(client):
     assert all(r.article_id == 1 for r in revisions)
     assert all(r.language_id == 1 for r in revisions)
     assert all(r.revision_id in {1, 2} for r in revisions)
+    assert all(r.parent_article.id == 1 for r in revisions)
+
+
+def test_wiki_new_revision(client):
+    article = WikiArticle.from_pk(1)
+    assert article.latest_revision.revision_id == 2
+    assert len(article.aliases) == 4
+    assert article.latest_revision.editor.id == 1
+    assert article.latest_revision.editor_id == 1
+    article.edit(
+        title='new article 1',
+        contents='bump',
+        editor_id=4)
+    assert article.title == 'new article 1'
+    assert article.contents == 'bump'
+    assert article.latest_revision.revision_id == 3
+    assert article.latest_revision.editor_id == 4
+    assert article.latest_revision.editor.id == 4
+    assert len(article.aliases) == 5
+
+
+def test_new_revision_translation(client):
+    translation = WikiTranslation.from_attrs(article_id=1, language_id=2)
+    assert translation.latest_revision.revision_id == 1
+    assert len(translation.parent_article.aliases) == 4
+    translation.edit(
+        title='articulo nuevo 1',
+        contents='bumpo',
+        editor_id=4)
+    assert translation.title == 'articulo nuevo 1'
+    assert translation.contents == 'bumpo'
+    assert translation.latest_revision.revision_id == 2
+    assert translation.latest_revision.editor_id == 4
+    assert len(translation.parent_article.aliases) == 5
+
+
+def test_alias_str_to_alias():
+    assert WikiAlias.str_to_alias('ab C eeSAjj') == 'abceesajj'
+
+
+def test_translation_new_invalid_language(client):
+    with pytest.raises(APIException) as e:
+        WikiLanguage.from_language('af', error=True)
+    assert e.value.message == 'Invalid WikiLanguage af.'
+
+
+def test_translation_valid_language(client):
+    assert WikiLanguage.from_language('en', error=True).id == 1
+
+
+def test_serialize(authed_client):
+    article = WikiArticle.from_pk(1)
+    data = NewJSONEncoder().default(article)
+    check_dictionary(data, {
+        'id': 1,
+        'title': 'Wiki1',
+        })
+
+
+def test_serialize_translation(authed_client):
+    article = WikiTranslation.from_attrs(
+        article_id=1,
+        language_id=2)
+    data = NewJSONEncoder().default(article)
+    assert data['title'] == 'WikiUno'
+    assert data['language']['id'] == 2
+    assert data['parent_article']['id'] == 1
+    assert data['latest_revision']['revision_id'] == 1
+
+
+def test_serialize_revision(authed_client):
+    article = WikiRevision.from_attrs(
+        revision_id=2,
+        article_id=1,
+        language_id=1)
+    data = NewJSONEncoder().default(article)
+    assert data['title'] == 'Wiki1'
+    assert data['language']['id'] == 1
+    assert data['parent_article']['id'] == 1

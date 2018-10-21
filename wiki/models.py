@@ -54,6 +54,25 @@ class WikiArticle(db.Model, SinglePKMixin):
             contents=contents)
         return article
 
+    def edit(self,
+             title: str,
+             contents: str,
+             editor_id: int) -> None:
+        WikiRevision.new(
+            article_id=self.id,
+            language_id=1,
+            title=title,
+            editor_id=editor_id,
+            contents=contents)
+        if WikiAlias.is_valid(title):
+            WikiAlias.new(
+                alias=title,
+                article_id=self.id)
+        self.title = title
+        self.contents = contents
+        self.del_property_cache('latest_revision')
+        self.del_property_cache('aliases')
+
     @cached_property
     def aliases(self):
         return [a.alias for a in WikiAlias.from_article(self.id)]
@@ -113,6 +132,25 @@ class WikiTranslation(db.Model, MultiPKMixin):
             contents=contents)
         return translation
 
+    def edit(self,
+             title: str,
+             contents: str,
+             editor_id: int) -> None:
+        WikiRevision.new(
+            article_id=self.article_id,
+            language_id=self.language_id,
+            title=title,
+            editor_id=editor_id,
+            contents=contents)
+        if WikiAlias.is_valid(title):
+            WikiAlias.new(
+                alias=title,
+                article_id=self.article_id)
+        self.title = title
+        self.contents = contents
+        self.del_property_cache('latest_revision')
+        self.parent_article.del_property_cache('aliases')
+
     @cached_property
     def parent_article(self):
         return WikiArticle.from_pk(self.article_id)
@@ -168,7 +206,9 @@ class WikiRevision(db.Model, MultiPKMixin):
             old_latest_id = cls.latest_revision(article_id).revision_id + 1  # type: ignore
         except WikiNoRevisions:
             old_latest_id = 1
-        cache.delete(cls.__cache_key_latest_id_of_article__.format(article_id=article_id))
+        cache.delete_many(
+            cls.__cache_key_of_article__.format(article_id=article_id),
+            cls.__cache_key_latest_id_of_article__.format(article_id=article_id))
         return super()._new(
             revision_id=old_latest_id,
             article_id=article_id,
@@ -182,7 +222,8 @@ class WikiRevision(db.Model, MultiPKMixin):
                         article_id: int,
                         language_id: int = 1) -> int:
         cache_key = cls.__cache_key_latest_id_of_article__.format(
-            article_id=article_id, language_id=language_id)
+            article_id=article_id,
+            language_id=language_id)
         revision_id = cache.get(cache_key)
         if revision_id:
             return cls.from_attrs(
@@ -197,9 +238,7 @@ class WikiRevision(db.Model, MultiPKMixin):
                 .limit(1).scalar())
             if not latest_revision:
                 raise WikiNoRevisions
-            cache.set(cache_key, {'article_id': latest_revision.article_id,
-                                  'revision_id': latest_revision.revision_id,
-                                  'language_id': latest_revision.language_id})
+            cache.set(cache_key, latest_revision.revision_id)
         return latest_revision
 
     @property
@@ -209,6 +248,10 @@ class WikiRevision(db.Model, MultiPKMixin):
     @cached_property
     def language(self):
         return WikiLanguage.from_pk(self.language_id)
+
+    @property
+    def parent_article(self):
+        return WikiArticle.from_pk(self.article_id)
 
 
 class WikiAlias(db.Model, SinglePKMixin):
@@ -231,6 +274,7 @@ class WikiAlias(db.Model, SinglePKMixin):
     def new(cls, alias: str, article_id: int) -> Optional['WikiAlias']:
         # Validity of the new alias should already have been checked when this is called.
         WikiArticle.is_valid(article_id, error=True)
+        cache.delete(cls.__cache_key_of_article__.format(article_id=article_id))
         return cls._new(
             article_id=article_id,
             alias=cls.str_to_alias(alias))
