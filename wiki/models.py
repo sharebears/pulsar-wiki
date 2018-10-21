@@ -91,11 +91,10 @@ class WikiTranslation(db.Model, MultiPKMixin):
     def new(cls,
             article_id: int,
             title: str,
-            language: str,
+            language_id: int,
             contents: str,
             user_id: int) -> 'WikiArticle':
         User.is_valid(user_id, error=True)
-        language_id = WikiLanguage.from_language(language, error=True)
         cache.delete(cls.__cache_key_all__.format)
         translation = super()._new(
             article_id=article_id,
