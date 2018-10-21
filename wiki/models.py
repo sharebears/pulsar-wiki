@@ -85,7 +85,7 @@ class WikiTranslation(db.Model, MultiPKMixin):
             key=cls.__cache_key_from_article__.format(article_id=article_id),
             column=cls.language_id,
             filter=cls.deleted == 'f',
-            order=cls.language_id.asc())]
+            order=cls.language_id.asc())]  # type: ignore
 
     @classmethod
     def new(cls,
@@ -95,13 +95,12 @@ class WikiTranslation(db.Model, MultiPKMixin):
             contents: str,
             user_id: int) -> 'WikiArticle':
         User.is_valid(user_id, error=True)
-        cache.delete(cls.__cache_key_all__.format)
+        cache.delete(cls.__cache_key_from_article__.format(article_id=article_id))
         translation = super()._new(
             article_id=article_id,
             language_id=language_id,
             title=title,
-            contents=contents,
-            author_id=user_id)
+            contents=contents)
         if WikiAlias.is_valid(title):
             WikiAlias.new(
                 alias=title,
@@ -152,7 +151,7 @@ class WikiRevision(db.Model, MultiPKMixin):
         return cls.get_many(
             key=cls.__cache_key_of_article__.format(article_id=article_id),
             filter=and_(cls.article_id == article_id, cls.language_id == language_id),
-            order=cls.time.desc(),
+            order=cls.time.desc(),  # type: ignore
             page=page,
             limit=limit)
 
@@ -166,10 +165,10 @@ class WikiRevision(db.Model, MultiPKMixin):
         WikiArticle.is_valid(article_id, error=True)
         WikiLanguage.is_valid(language_id, error=True)
         try:
-            old_latest_id = cls.latest_revision(article_id).revision_id + 1
+            old_latest_id = cls.latest_revision(article_id).revision_id + 1  # type: ignore
         except WikiNoRevisions:
             old_latest_id = 1
-        cache.inc(cls.__cache_key_latest_id_of_article__.format(article_id=article_id))
+        cache.delete(cls.__cache_key_latest_id_of_article__.format(article_id=article_id))
         return super()._new(
             revision_id=old_latest_id,
             article_id=article_id,
@@ -194,7 +193,7 @@ class WikiRevision(db.Model, MultiPKMixin):
             latest_revision = (
                 cls.query
                 .filter(and_(cls.article_id == article_id, cls.language_id == language_id))
-                .order_by(cls.revision_id.desc())
+                .order_by(cls.revision_id.desc())  # type: ignore
                 .limit(1).scalar())
             if not latest_revision:
                 raise WikiNoRevisions
@@ -226,7 +225,7 @@ class WikiAlias(db.Model, SinglePKMixin):
         return cls.get_many(
             key=cls.__cache_key_of_article__.format(article_id=article_id),
             filter=cls.article_id == article_id,
-            order=cls.alias.asc())
+            order=cls.alias.asc())  # type: ignore
 
     @classmethod
     def new(cls, alias: str, article_id: int) -> Optional['WikiAlias']:
@@ -272,5 +271,5 @@ class WikiLanguage(db.Model, SinglePKMixin):
             key=cls.__cache_key_from_language__.format(language=language),
             filter=func.lower(cls.language) == language)
         if error and not wiki_language:
-            raise APIException(f'Invalid {WikiLanguage} {language}.')
+            raise APIException(f'Invalid WikiLanguage {language}.')
         return wiki_language

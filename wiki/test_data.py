@@ -52,7 +52,8 @@ class WikiPopulator(TestDataPopulator):
             ('wikiuno', 1),
             ('diddles1', 1),
             ('wikidos', 2),
-            ('diddles2', 2)
+            ('diddles2', 2),
+            ('wikione', 1)
             """)
         cls.add_permissions(
             WikiPermissions.VIEW,
