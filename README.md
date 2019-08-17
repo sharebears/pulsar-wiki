@@ -1,3 +1,3 @@
 # pulsar-wiki
 
-Wiki module for the pulsar API.
+The wiki module for the pulsar project.
