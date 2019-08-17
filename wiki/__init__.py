@@ -4,9 +4,7 @@ from wiki import routes
 
 # Start all permission names with 'wiki_'.
 
-PERMISSIONS = [
-    'wiki_view'  # View the wiki
-    ]
+PERMISSIONS = ['wiki_view']  # View the wiki
 
 
 def init_app(app):

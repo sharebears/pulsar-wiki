@@ -4,7 +4,6 @@ from wiki.permissions import WikiPermissions
 
 
 class WikiPopulator(TestDataPopulator):
-
     @classmethod
     def populate(cls):
         db.session.execute(  # move last updated to revisions
@@ -14,11 +13,13 @@ class WikiPopulator(TestDataPopulator):
             ('Wiki2', 'Contents2', 'f'),
             ('Wiki3', 'Contents3', 'f'),
             ('Wiki4', 'Contents4', 't')
-            """)
+            """
+        )
         db.session.execute(
             """INSERT INTO wiki_languages (id, language) VALUES
             (1, 'en'), (2, 'es'), (3, 'fr')
-            """)
+            """
+        )
         db.session.execute(
             """
             INSERT INTO wiki_translations
@@ -27,7 +28,8 @@ class WikiPopulator(TestDataPopulator):
             (1, 3, 'Diddles1', 'Dontentos1', 'f'),
             (2, 2, 'WikiDos', 'ContentosDos', 'f'),
             (2, 3, 'Diddles2', 'Dontentos2', 't')
-            """)
+            """
+        )
         db.session.execute(
             """
             INSERT INTO wiki_revisions
@@ -41,7 +43,8 @@ class WikiPopulator(TestDataPopulator):
             (1, 1, 3, 'Diddles1', 1, NOW() - INTERVAL '1 DAY', 'OldDontentos1'),
             (1, 2, 2, 'WikiDos', 4, NOW() - INTERVAL '1 DAY', 'OldContentosEspnaol2'),
             (1, 2, 3, 'Diddles2', 1, NOW() - INTERVAL '1 DAY', 'OldDontentos2')
-            """)
+            """
+        )
         db.session.execute(
             """
             INSERT INTO wiki_aliases (alias, article_id) VALUES
@@ -54,12 +57,14 @@ class WikiPopulator(TestDataPopulator):
             ('wikidos', 2),
             ('diddles2', 2),
             ('wikione', 1)
-            """)
+            """
+        )
         cls.add_permissions(
             WikiPermissions.VIEW,
             WikiPermissions.EDIT,
             WikiPermissions.CREATE,
-            WikiPermissions.DELETE)
+            WikiPermissions.DELETE,
+        )
         db.session.commit()
 
     @classmethod

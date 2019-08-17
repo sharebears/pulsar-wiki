@@ -15,7 +15,7 @@ class WikiRevisionSerializer(Serializer):
     language = Attribute()
     parent_article = Attribute(nested=False)
     title = Attribute()
-    editor = Attribute(nested=('id', 'username', ))
+    editor = Attribute(nested=('id', 'username'))
     time = Attribute()
     contents = Attribute()
 
